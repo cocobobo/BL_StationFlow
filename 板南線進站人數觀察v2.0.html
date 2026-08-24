@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>板南線進出站流量分析儀表板 (進階版)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS for CSV / XLSX Parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f8fafc;
+        }
+        .bannan-blue {
+            background-color: #0070BD;
+        }
+        .bannan-border {
+            border-color: #0070BD;
+        }
+        .bannan-text {
+            color: #0070BD;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        /* Range slider custom style */
+        input[type=range] {
+            accent-color: #0070BD;
+        }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col">
+
+    <!-- 頂部頁首區 -->
+    <header class="bannan-blue text-white shadow-md relative z-10">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <div class="flex items-center gap-2 text-blue-100 text-xs font-semibold uppercase tracking-wider mb-1">
+                        <span class="bg-blue-900/80 px-2.5 py-0.5 rounded-md text-blue-100 border border-blue-400/30">
+                            <i class="fa-solid fa-train-subway me-1"></i> 台北捷運板南線 (頂埔 ↔ 板橋)
+                        </span>
+                        <span>•</span>
+                        <span>進階營運分析決策系統</span>
+                    </div>
+                    <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">板南線車站流量歷史趨勢與動態分析儀表板</h1>
+                </div>
+                <div class="flex flex-wrap items-center gap-2.5">
+                    <button onclick="downloadExcelTemplate()" class="bg-blue-700/80 hover:bg-blue-600 text-xs text-white px-3 py-2 rounded-xl border border-blue-400/40 flex items-center gap-1.5 transition shadow-sm">
+                        <i class="fa-solid fa-file-excel text-emerald-400"></i> 下載範本
+                    </button>
+                    <label class="bg-emerald-600 hover:bg-emerald-500 text-xs text-white px-3.5 py-2 rounded-xl cursor-pointer border border-emerald-400/40 flex items-center gap-1.5 transition shadow-sm font-bold">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> 上傳數據 (CSV / XLSX)
+                        <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" onchange="handleFileUpload(event)" class="hidden">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 核心控制中心 (Control Panel) -->
+    <section class="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-20">
+        <div class="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 space-y-3">
+            
+            <!-- 控制區第一排：流量方向切換 & 時間區間快選 -->
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                
+                <!-- 1. 雙向流量切換 (In / Out / Net) -->
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-500 whitespace-nowrap">
+                        <i class="fa-solid fa-arrow-left-right text-blue-600 me-1"></i>流量方向：
+                    </span>
+                    <div class="inline-flex rounded-xl p-1 bg-slate-100 border border-slate-200 text-xs font-bold">
+                        <button id="btn-flow-in" onclick="setFlowType('in')" class="px-3 py-1.5 rounded-lg transition bg-white bannan-text shadow-sm">
+                            <i class="fa-solid fa-right-to-bracket text-emerald-600 me-1"></i>進站 (In)
+                        </button>
+                        <button id="btn-flow-out" onclick="setFlowType('out')" class="px-3 py-1.5 rounded-lg transition text-slate-600 hover:text-slate-900">
+                            <i class="fa-solid fa-right-from-bracket text-rose-500 me-1"></i>出站 (Out)
+                        </button>
+                        <button id="btn-flow-net" onclick="setFlowType('net')" class="px-3 py-1.5 rounded-lg transition text-slate-600 hover:text-slate-900">
+                            <i class="fa-solid fa-scale-balanced text-amber-500 me-1"></i>淨流量 (Net = In - Out)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. 時段快選快捷鍵 (Presets) -->
+                <div class="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 lg:pb-0">
+                    <span class="text-xs font-bold text-slate-500 whitespace-nowrap">
+                        <i class="fa-solid fa-clock text-amber-500 me-1"></i>時段快選：
+                    </span>
+                    <button onclick="setTimePreset('morning')" class="px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold hover:bg-blue-100 transition whitespace-nowrap">
+                        <i class="fa-solid fa-sun text-amber-500 me-1"></i>晨峰 (07:00~09:30)
+                    </button>
+                    <button onclick="setTimePreset('evening')" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-bold hover:bg-indigo-100 transition whitespace-nowrap">
+                        <i class="fa-solid fa-moon text-indigo-500 me-1"></i>午峰 (17:00~20:30)
+                    </button>
+                    <button onclick="setTimePreset('full')" class="px-2.5 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-200 transition whitespace-nowrap">
+                        全時段 (07:00~20:30)
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- 控制區第二排：動態時間軸雙向滑桿控制條 -->
+            <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                <div class="md:col-span-3 flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <i class="fa-solid fa-sliders text-blue-600"></i>時間軸篩選範圍：
+                    </span>
+                    <span id="slider-range-label" class="text-xs font-black bg-blue-600 text-white px-2 py-0.5 rounded-md font-mono">
+                        07:00 - 09:30
+                    </span>
+                </div>
+                <div class="md:col-span-9 flex items-center gap-3">
+                    <span class="text-[11px] font-mono font-bold text-slate-400">07:00</span>
+                    <div class="flex-grow grid grid-cols-2 gap-2 items-center">
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-500 font-bold mb-0.5">起點時間: <span id="label-start-time" class="text-blue-700 font-mono">07:00</span></label>
+                            <input type="range" id="slider-start" min="0" max="37" value="0" step="1" oninput="onTimeSliderChange()" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div class="flex flex-col">
+                            <label class="text-[10px] text-slate-500 font-bold mb-0.5">訖點時間: <span id="label-end-time" class="text-blue-700 font-mono">09:30</span></label>
+                            <input type="range" id="slider-end" min="0" max="37" value="15" step="1" oninput="onTimeSliderChange()" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+                    <span class="text-[11px] font-mono font-bold text-slate-400">20:30</span>
+                </div>
+            </div>
+
+            <!-- 控制區第三排：日期選擇器區 (支援跨期 A/B 與 多日歷史連續選擇條件切換) -->
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-1 border-t border-slate-100">
+                <div class="md:col-span-2 text-xs font-bold text-slate-600 flex items-center gap-1">
+                    <i class="fa-solid fa-calendar-days text-blue-600"></i> 對比模式與日期：
+                </div>
+                
+                <!-- A/B 基準與對比日期下拉選單 (Tab 1, 2, 4 顯示) -->
+                <div id="ab-date-selectors" class="md:col-span-10 flex items-center gap-2">
+                    <span class="text-xs text-slate-500 whitespace-nowrap">基準(A):</span>
+                    <select id="select-date-1" onchange="onDateSelectionChange()" class="w-full max-w-[160px] text-xs font-bold bg-white border border-slate-300 text-slate-800 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500">
+                    </select>
+                    <span class="text-xs text-slate-500 whitespace-nowrap">對比(B):</span>
+                    <select id="select-date-2" onchange="onDateSelectionChange()" class="w-full max-w-[160px] text-xs font-bold bg-white border border-slate-300 text-slate-800 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500">
+                    </select>
+                </div>
+
+                <!-- 多日勾選標籤列 (僅在 Tab 3 點選時顯示) -->
+                <div id="multi-date-container" class="md:col-span-10 flex items-center gap-1.5 overflow-x-auto custom-scrollbar py-0.5 hidden">
+                    <div class="flex items-center gap-1.5" id="multi-date-checkboxes">
+                        <!-- JS 動態繪製多日勾選按鈕 -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- 主要內容展示區 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-grow w-full">
+
+        <!-- 核心指標 KPI 卡片區 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <!-- KPI 1 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 hover:shadow-md transition">
+                <div class="flex items-center justify-between text-slate-500 mb-2">
+                    <span id="kpi-date1-title" class="text-xs font-bold uppercase tracking-wider">基準期流量 (A)</span>
+                    <div class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-calendar-day"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-date1-total" class="text-2xl font-black text-slate-800">-</span>
+                    <span class="text-xs font-semibold text-slate-500">人次</span>
+                </div>
+                <p id="kpi-date1-sub" class="text-xs text-slate-400 mt-2 flex items-center gap-1">
+                    <i class="fa-solid fa-circle-info text-blue-500"></i>
+                    頂埔至板橋共 7 站採樣合計
+                </p>
+            </div>
+
+            <!-- KPI 2 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 hover:shadow-md transition">
+                <div class="flex items-center justify-between text-slate-500 mb-2">
+                    <span id="kpi-date2-title" class="text-xs font-bold uppercase tracking-wider">對比期流量 (B)</span>
+                    <div class="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-calendar-check"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-date2-total" class="text-2xl font-black text-slate-800">-</span>
+                    <span id="kpi-diff-badge" class="text-xs font-bold text-slate-500">-</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-2 flex items-center gap-1">
+                    <i class="fa-solid fa-chart-line text-emerald-500"></i>
+                    兩期選擇時段流量差異比較
+                </p>
+            </div>
+
+            <!-- KPI 3 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 hover:shadow-md transition">
+                <div class="flex items-center justify-between text-slate-500 mb-2">
+                    <span id="kpi-max-diff-title" class="text-xs font-bold uppercase tracking-wider">最大增幅/變化車站</span>
+                    <div class="w-8 h-8 rounded-full bg-sky-50 text-sky-600 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-arrow-trend-up"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-max-diff-pct" class="text-2xl font-black text-sky-700">-</span>
+                    <span id="kpi-max-diff-num" class="text-xs font-semibold text-sky-600">-</span>
+                </div>
+                <p id="kpi-max-diff-station" class="text-xs text-slate-400 mt-2">
+                    計算中...
+                </p>
+            </div>
+
+            <!-- KPI 4 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 hover:shadow-md transition">
+                <div class="flex items-center justify-between text-slate-500 mb-2">
+                    <span id="kpi-top-station-title" class="text-xs font-bold uppercase tracking-wider">採樣最高流量車站</span>
+                    <div class="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-trophy"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="kpi-top-station-name" class="text-2xl font-black text-slate-800">-</span>
+                    <span id="kpi-top-station-avg" class="text-xs font-semibold text-amber-600">-</span>
+                </div>
+                <p id="kpi-top-station-share" class="text-xs text-slate-400 mt-2">
+                    計算中...
+                </p>
+            </div>
+        </div>
+
+        <!-- 分析頁籤導覽 (Tabs) -->
+        <div class="flex border-b border-slate-200 mb-6 overflow-x-auto custom-scrollbar">
+            <button id="tab-btn-1" onclick="switchTab(1)" class="px-5 py-3 font-bold text-sm border-b-2 bannan-border bannan-text flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-chart-column"></i> 1. 兩期各站總量比較與增減排行
+            </button>
+            <button id="tab-btn-2" onclick="switchTab(2)" class="px-5 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-700 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-chart-line"></i> 2. 單站 10 分鐘時段走勢與多日疊加
+            </button>
+            <button id="tab-btn-3" onclick="switchTab(3)" class="px-5 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-700 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-timeline text-indigo-600"></i> 3. 歷史多日跨期趨勢連續分析
+            </button>
+            <button id="tab-btn-4" onclick="switchTab(4)" class="px-5 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-700 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-table-cells"></i> 4. 時段淨流量差異熱圖矩陣
+            </button>
+        </div>
+
+        <!-- TAB 1: 兩期各站總量比較與增減排行 -->
+        <div id="tab-content-1" class="space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- 長條圖 -->
+                <div class="lg:col-span-8 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                        <div>
+                            <h3 id="chart1-title" class="font-bold text-slate-800 text-base">板南線車站流量對比</h3>
+                            <p id="chart1-subtitle" class="text-xs text-slate-500">單位：人次</p>
+                        </div>
+                    </div>
+                    <div class="h-80">
+                        <canvas id="chart-totals-compare"></canvas>
+                    </div>
+                </div>
+
+                <!-- 排行榜 -->
+                <div class="lg:col-span-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-base mb-1">各站流量變化率 (%) 排行</h3>
+                        <p id="rank-sub-title" class="text-xs text-slate-500 mb-3">對比期相較於基準期之增減百分比</p>
+                        <div class="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1" id="variance-list">
+                        </div>
+                    </div>
+                    <div class="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-start gap-2">
+                        <i class="fa-solid fa-circle-info text-blue-600 mt-0.5"></i>
+                        <span>上方時間軸滑桿與流量方向（進/出/淨）切換時，此排行榜將即時聯動。</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 詳細數據表格 -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="font-bold text-slate-800 text-base mb-3">選定時間範圍車站流量統計對照表</h3>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-xs text-left border-collapse min-w-[650px]">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                                <th class="p-3">車站名稱</th>
+                                <th id="th-date-1" class="p-3 text-right">基準期 (A)</th>
+                                <th id="th-date-2" class="p-3 text-right">對比期 (B)</th>
+                                <th class="p-3 text-right">人次差異 (B - A)</th>
+                                <th class="p-3 text-right">變化率 (%)</th>
+                                <th class="p-3 text-right">佔全線比例 (均值)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summary-table-body" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: 單站 10 分鐘時段走勢與多日疊加 -->
+        <div id="tab-content-2" class="space-y-6 hidden">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-base">單一車站 10 分鐘連續時段曲線 (多日疊加比對)</h3>
+                        <p class="text-xs text-slate-500">可選取特定車站，觀察多個日期在選定時間軸區間內的流量變化曲線</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs font-bold text-slate-600 whitespace-nowrap">選擇車站：</label>
+                        <select id="select-station-time" onchange="updateTimeChart()" class="text-xs font-semibold bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500">
+                            <option value="頂埔">頂埔 (Dingpu)</option>
+                            <option value="永寧">永寧 (Yongning)</option>
+                            <option value="土城">土城 (Tucheng)</option>
+                            <option value="海山">海山 (Haishan)</option>
+                            <option value="亞東醫院">亞東醫院 (Far Eastern Hospital)</option>
+                            <option value="府中">府中 (Fuzhong)</option>
+                            <option value="板橋" selected>板橋 (Banqiao)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="h-80 mb-4">
+                    <canvas id="chart-station-time-series"></canvas>
+                </div>
+
+                <div id="time-series-insight" class="p-4 bg-blue-50/70 rounded-xl border border-blue-100 text-xs text-blue-900">
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: 歷史多日跨期趨勢連續分析 -->
+        <div id="tab-content-3" class="space-y-6 hidden">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-base">多日歷史總流量連續變化趨勢 (跨日比較)</h3>
+                        <p class="text-xs text-slate-500">呈現選定車站與選定時間區間內，跨日總流量的變化軌跡（如：週一至週日變化規律）</p>
+                    </div>
+                </div>
+
+                <div class="h-80 mb-6">
+                    <canvas id="chart-history-trend"></canvas>
+                </div>
+
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <h4 class="font-bold text-xs text-slate-700 mb-2"><i class="fa-solid fa-list-check me-1 text-blue-600"></i> 多日流量統計觀察數據摘要：</h4>
+                    <div id="history-summary-container" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: 時段淨流量差異熱圖矩陣 -->
+        <div id="tab-content-4" class="space-y-6 hidden">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                    <div>
+                        <h3 id="heatmap-title" class="font-bold text-slate-800 text-base">車站 x 時段 流量差異熱圖矩陣 (對比期 減 基準期)</h3>
+                        <p class="text-xs text-slate-500">顯示各時段與車站對比期相較於基準期之淨人次差異（藍色為增加，紅色為減少）</p>
+                    </div>
+                    <div class="flex items-center gap-3 text-xs">
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-blue-600 text-white font-bold text-[9px] flex items-center justify-center">+</span> 增加 >50 人</span>
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-slate-100 border border-slate-300"></span> 平穩 (-50~+50)</span>
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-rose-500 text-white font-bold text-[9px] flex items-center justify-center">-</span> 減少 >50 人</span>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-xs text-center border-collapse min-w-[800px]">
+                        <thead>
+                            <tr id="heatmap-header-row" class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                                <th class="p-2.5 text-left sticky left-0 bg-slate-100 z-10 w-28">車站 \ 時段</th>
+                            </tr>
+                        </thead>
+                        <tbody id="diff-heatmap-body" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 頁尾 -->
+    <footer class="bg-slate-900 text-slate-400 py-6 text-xs text-center border-t border-slate-800 mt-auto">
+        <div class="max-w-7xl mx-auto px-4">
+            <p>台北捷運板南線流量分析系統 &copy; 2026 | 營運決策支援儀表板</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript 邏輯程式碼 -->
+    <script>
+        // 完整的 10 分鐘採樣時間點序列 (07:00 ~ 20:30 共 38 個時段)
+        const fullTimeSlots = [
+            '07:00', '07:10', '07:20', '07:30', '07:40', '07:50',
+            '08:00', '08:10', '08:20', '08:30', '08:40', '08:50',
+            '09:00', '09:10', '09:20', '09:30', '09:40', '09:50',
+            '17:00', '17:10', '17:20', '17:30', '17:40', '17:50',
+            '18:00', '18:10', '18:20', '18:30', '18:40', '18:50',
+            '19:00', '19:10', '19:20', '19:30', '19:40', '19:50',
+            '20:00', '20:10', '20:20', '20:30'
+        ];
+
+        const standardStations = ['頂埔', '永寧', '土城', '海山', '亞東醫院', '府中', '板橋'];
+
+        // 當前全局狀態
+        let currentFlowType = 'in'; // 'in', 'out', 'net'
+        let startIndex = 0;   // 預設 07:00
+        let endIndex = 15;    // 預設 09:30
+        let currentSelectedDate1 = '2026-08-10';
+        let currentSelectedDate2 = '2026-08-17';
+        let selectedMultiDates = []; // 多日選擇陣列
+
+        // 圖表物件實體
+        let chartTotalsCompareInstance = null;
+        let chartStationTimeSeriesInstance = null;
+        let chartHistoryTrendInstance = null;
+
+        // 預設模擬數據庫 (支援 2026-08-10 至 2026-08-18 共 9 天)
+        let database = generateInitialDatabase();
+
+        function generateInitialDatabase() {
+            const db = {};
+            const dates = [
+                '2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', 
+                '2026-08-14', '2026-08-15', '2026-08-16', '2026-08-17', '2026-08-18'
+            ];
+
+            const baseRates = {
+                '頂埔': { inMorning: 350, outMorning: 180, inEvening: 220, outEvening: 320 },
+                '永寧': { inMorning: 320, outMorning: 150, inEvening: 180, outEvening: 340 },
+                '土城': { inMorning: 250, outMorning: 80,  inEvening: 110, outEvening: 280 },
+                '海山': { inMorning: 850, outMorning: 120, inEvening: 210, outEvening: 890 },
+                '亞東醫院': { inMorning: 700, outMorning: 280, inEvening: 380, outEvening: 720 },
+                '府中': { inMorning: 750, outMorning: 150, inEvening: 390, outEvening: 810 },
+                '板橋': { inMorning: 720, outMorning: 450, inEvening: 780, outEvening: 1200 }
+            };
+
+            dates.forEach((date, dIdx) => {
+                db[date] = {};
+                const isWeekend = (date === '2026-08-15' || date === '2026-08-16');
+                const factor = isWeekend ? 0.45 : (1 + (dIdx % 3) * 0.03 - 0.02);
+
+                standardStations.forEach(st => {
+                    const r = baseRates[st];
+                    const inArr = [];
+                    const outArr = [];
+
+                    fullTimeSlots.forEach((t, tIdx) => {
+                        const isMorning = tIdx < 18;
+                        const peakWave = Math.sin((tIdx % 18) / 17 * Math.PI);
+                        
+                        let inVal = Math.round((isMorning ? r.inMorning : r.inEvening) * peakWave * factor + Math.random() * 30);
+                        let outVal = Math.round((isMorning ? r.outMorning : r.outEvening) * peakWave * factor + Math.random() * 25);
+
+                        inArr.push(Math.max(10, inVal));
+                        outArr.push(Math.max(10, outVal));
+                    });
+
+                    db[date][st] = { in: inArr, out: outArr };
+                });
+            });
+
+            return db;
+        }
+
+        // 頁面初始化
+        window.onload = function() {
+            initControlPanel();
+            switchTab(1);
+            refreshDashboard();
+        };
+
+        // 初始化控制面板組件
+        function initControlPanel() {
+            const availableDates = Object.keys(database).sort();
+            
+            // 填充 A / B 日期下拉選單
+            const sel1 = document.getElementById('select-date-1');
+            const sel2 = document.getElementById('select-date-2');
+            
+            if (sel1 && sel2) {
+                sel1.innerHTML = '';
+                sel2.innerHTML = '';
+                
+                availableDates.forEach(d => {
+                    sel1.add(new Option(d, d));
+                    sel2.add(new Option(d, d));
+                });
+
+                if (availableDates.length > 0) {
+                    sel1.value = availableDates[0];
+                    currentSelectedDate1 = availableDates[0];
+                }
+                if (availableDates.length > 1) {
+                    sel2.value = availableDates[availableDates.length - 2] || availableDates[1];
+                    currentSelectedDate2 = sel2.value;
+                } else if (availableDates.length === 1) {
+                    sel2.value = availableDates[0];
+                    currentSelectedDate2 = availableDates[0];
+                }
+            }
+
+            // 填充多日勾選清單
+            const multiContainer = document.getElementById('multi-date-checkboxes');
+            if (multiContainer) {
+                multiContainer.innerHTML = '';
+                selectedMultiDates = [...availableDates];
+
+                availableDates.forEach(d => {
+                    const label = document.createElement('label');
+                    label.className = "inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-semibold cursor-pointer hover:bg-slate-100 transition whitespace-nowrap";
+                    label.innerHTML = `
+                        <input type="checkbox" value="${d}" checked onchange="toggleMultiDate('${d}', this.checked)" class="rounded text-blue-600 focus:ring-blue-500 accent-blue-600">
+                        <span>${d}</span>
+                    `;
+                    multiContainer.appendChild(label);
+                });
+            }
+
+            // 設定滑桿範圍屬性
+            const sStart = document.getElementById('slider-start');
+            const sEnd = document.getElementById('slider-end');
+            if (sStart && sEnd) {
+                sStart.max = fullTimeSlots.length - 1;
+                sEnd.max = fullTimeSlots.length - 1;
+                sStart.value = startIndex;
+                sEnd.value = endIndex;
+            }
+            updateSliderLabels();
+        }
+
+        // 滑桿變動處理函式
+        function onTimeSliderChange() {
+            let s = parseInt(document.getElementById('slider-start').value);
+            let e = parseInt(document.getElementById('slider-end').value);
+
+            if (s > e) {
+                s = e;
+                document.getElementById('slider-start').value = s;
+            }
+
+            startIndex = s;
+            endIndex = e;
+
+            updateSliderLabels();
+            refreshDashboard();
+        }
+
+        // 更新滑桿文字顯示
+        function updateSliderLabels() {
+            const rangeLabel = document.getElementById('slider-range-label');
+            const startLabel = document.getElementById('label-start-time');
+            const endLabel = document.getElementById('label-end-time');
+
+            const startTimeStr = fullTimeSlots[startIndex] || '07:00';
+            const endTimeStr = fullTimeSlots[endIndex] || '20:30';
+
+            if (rangeLabel) rangeLabel.innerText = `${startTimeStr} - ${endTimeStr}`;
+            if (startLabel) startLabel.innerText = startTimeStr;
+            if (endLabel) endLabel.innerText = endTimeStr;
+        }
+
+        // 切換流量方向
+        function setFlowType(type) {
+            currentFlowType = type;
+            const btnIn = document.getElementById('btn-flow-in');
+            const btnOut = document.getElementById('btn-flow-out');
+            const btnNet = document.getElementById('btn-flow-net');
+
+            const activeClass = "px-3 py-1.5 rounded-lg transition bg-white bannan-text shadow-sm font-bold";
+            const inactiveClass = "px-3 py-1.5 rounded-lg transition text-slate-600 hover:text-slate-900 bg-transparent";
+
+            if (btnIn) btnIn.className = type === 'in' ? activeClass : inactiveClass;
+            if (btnOut) btnOut.className = type === 'out' ? activeClass : inactiveClass;
+            if (btnNet) btnNet.className = type === 'net' ? activeClass : inactiveClass;
+
+            refreshDashboard();
+        }
+
+        // 時間區間快選
+        function setTimePreset(preset) {
+            if (preset === 'morning') {
+                startIndex = 0;  // 07:00
+                endIndex = 15;   // 09:30
+            } else if (preset === 'evening') {
+                startIndex = 18; // 17:00
+                endIndex = 39;   // 20:30
+            } else if (preset === 'full') {
+                startIndex = 0;  // 07:00
+                endIndex = fullTimeSlots.length - 1; // 20:30
+            }
+
+            const sStart = document.getElementById('slider-start');
+            const sEnd = document.getElementById('slider-end');
+            if (sStart) sStart.value = startIndex;
+            if (sEnd) sEnd.value = endIndex;
+
+            updateSliderLabels();
+            refreshDashboard();
+        }
+
+        // 日期選擇變更
+        function onDateSelectionChange() {
+            const sel1 = document.getElementById('select-date-1');
+            const sel2 = document.getElementById('select-date-2');
+            if (sel1) currentSelectedDate1 = sel1.value;
+            if (sel2) currentSelectedDate2 = sel2.value;
+            refreshDashboard();
+        }
+
+        // 多日勾選切換
+        function toggleMultiDate(dateStr, isChecked) {
+            if (isChecked) {
+                if (!selectedMultiDates.includes(dateStr)) {
+                    selectedMultiDates.push(dateStr);
+                }
+            } else {
+                selectedMultiDates = selectedMultiDates.filter(d => d !== dateStr);
+            }
+            selectedMultiDates.sort();
+            refreshDashboard();
+        }
+
+        // 切換 Tab 並控制日期選單之動態顯示
+        function switchTab(tabIdx) {
+            for (let i = 1; i <= 4; i++) {
+                const content = document.getElementById(`tab-content-${i}`);
+                const btn = document.getElementById(`tab-btn-${i}`);
+                if (content && btn) {
+                    if (i === tabIdx) {
+                        content.classList.remove('hidden');
+                        btn.className = "px-5 py-3 font-bold text-sm border-b-2 bannan-border bannan-text flex items-center gap-2 whitespace-nowrap";
+                    } else {
+                        content.classList.add('hidden');
+                        btn.className = "px-5 py-3 font-bold text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-700 flex items-center gap-2 whitespace-nowrap";
+                    }
+                }
+            }
+
+            const abContainer = document.getElementById('ab-date-selectors');
+            const multiDateContainer = document.getElementById('multi-date-container');
+
+            if (abContainer && multiDateContainer) {
+                if (tabIdx === 3) {
+                    abContainer.classList.add('hidden');
+                    multiDateContainer.classList.remove('hidden');
+                } else {
+                    abContainer.classList.remove('hidden');
+                    multiDateContainer.classList.add('hidden');
+                }
+            }
+
+            setTimeout(() => {
+                if (tabIdx === 1 && chartTotalsCompareInstance) chartTotalsCompareInstance.resize();
+                if (tabIdx === 2 && chartStationTimeSeriesInstance) chartStationTimeSeriesInstance.resize();
+                if (tabIdx === 3 && chartHistoryTrendInstance) chartHistoryTrendInstance.resize();
+            }, 50);
+
+            refreshDashboard();
+        }
+
+        // 全面重新整理繪製所有圖表與 KPI
+        function refreshDashboard() {
+            renderTab1();
+            updateTimeChart();
+            renderTab3HistoryTrend();
+            renderDiffHeatmap();
+        }
+
+        // 提取過濾後的流量數值陣列
+        function getFilteredDataArray(dateStr, station) {
+            if (!database[dateStr] || !database[dateStr][station]) {
+                return Array(endIndex - startIndex + 1).fill(0);
+            }
+
+            const stData = database[dateStr][station];
+            const inSliced = stData.in.slice(startIndex, endIndex + 1);
+            const outSliced = stData.out.slice(startIndex, endIndex + 1);
+
+            if (currentFlowType === 'in') {
+                return inSliced;
+            } else if (currentFlowType === 'out') {
+                return outSliced;
+            } else {
+                return inSliced.map((inVal, idx) => inVal - (outSliced[idx] || 0));
+            }
+        }
+
+        // TAB 1: 兩期各站總量比較與增減排行
+        function renderTab1() {
+            const date1 = currentSelectedDate1;
+            const date2 = currentSelectedDate2;
+
+            document.getElementById('kpi-date1-title').innerText = `${date1} 流量 (A)`;
+            document.getElementById('kpi-date2-title').innerText = `${date2} 流量 (B)`;
+            document.getElementById('th-date-1').innerText = `${date1} (A)`;
+            document.getElementById('th-date-2').innerText = `${date2} (B)`;
+            document.getElementById('chart1-title').innerText = `板南線車站流量對比 (${date1} vs ${date2})`;
+
+            const totals1 = standardStations.map(st => getSum(getFilteredDataArray(date1, st)));
+            const totals2 = standardStations.map(st => getSum(getFilteredDataArray(date2, st)));
+
+            const sum1 = getSum(totals1);
+            const sum2 = getSum(totals2);
+            const diffSum = sum2 - sum1;
+            const pctSum = sum1 > 0 ? (diffSum / sum1) * 100 : 0;
+
+            document.getElementById('kpi-date1-total').innerText = sum1.toLocaleString();
+            document.getElementById('kpi-date2-total').innerText = sum2.toLocaleString();
+
+            const badgeEl = document.getElementById('kpi-diff-badge');
+            const signStr = diffSum >= 0 ? '+' : '';
+            badgeEl.innerText = `${signStr}${diffSum.toLocaleString()} 人 (${signStr}${pctSum.toFixed(2)}%)`;
+            badgeEl.className = diffSum >= 0 ? "text-xs font-bold text-emerald-600" : "text-xs font-bold text-rose-500";
+
+            // 計算最大變化與最高流量車站
+            const diffData = standardStations.map((st, idx) => {
+                const v1 = totals1[idx];
+                const v2 = totals2[idx];
+                const diff = v2 - v1;
+                const pct = v1 !== 0 ? (diff / Math.abs(v1)) * 100 : 0;
+                const avg = (v1 + v2) / 2;
+                return { station: st, v1, v2, diff, pct, avg };
+            });
+
+            const sortedByPct = [...diffData].sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+            if (sortedByPct.length > 0) {
+                const topInc = sortedByPct[0];
+                const sInc = topInc.diff >= 0 ? '+' : '';
+                document.getElementById('kpi-max-diff-pct').innerText = `${sInc}${topInc.pct.toFixed(1)}%`;
+                document.getElementById('kpi-max-diff-num').innerText = `${sInc}${topInc.diff.toLocaleString()} 人`;
+                document.getElementById('kpi-max-diff-station').innerText = `${topInc.station}站 (${topInc.v1.toLocaleString()} → ${topInc.v2.toLocaleString()} 人)`;
+            }
+
+            const sortedByAvg = [...diffData].sort((a, b) => b.avg - a.avg);
+            if (sortedByAvg.length > 0) {
+                const topVol = sortedByAvg[0];
+                const grandAvg = (sum1 + sum2) / 2;
+                const share = grandAvg > 0 ? ((topVol.avg / grandAvg) * 100).toFixed(1) : 0;
+                document.getElementById('kpi-top-station-name').innerText = `${topVol.station}站`;
+                document.getElementById('kpi-top-station-avg').innerText = `均值 ${Math.round(topVol.avg).toLocaleString()} 人`;
+                document.getElementById('kpi-top-station-share').innerText = `佔全線採樣總量約 ${share}%`;
+            }
+
+            // 繪製長條圖
+            const ctx = document.getElementById('chart-totals-compare').getContext('2d');
+            if (chartTotalsCompareInstance) chartTotalsCompareInstance.destroy();
+
+            chartTotalsCompareInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: standardStations,
+                    datasets: [
+                        { label: `${date1} (A)`, data: totals1, backgroundColor: '#0070BD', borderRadius: 4 },
+                        { label: `${date2} (B)`, data: totals2, backgroundColor: '#10b981', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            // 繪製排行榜
+            const listContainer = document.getElementById('variance-list');
+            listContainer.innerHTML = '';
+            sortedByPct.forEach(item => {
+                const isPos = item.pct >= 0;
+                const badgeClass = isPos ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200';
+                const s = isPos ? '+' : '';
+                const div = document.createElement('div');
+                div.className = "flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs";
+                div.innerHTML = `
+                    <span class="font-bold text-slate-700">${item.station}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-400 text-[11px] font-mono">${s}${item.diff} 人</span>
+                        <span class="px-2 py-0.5 rounded font-bold ${badgeClass}">${s}${item.pct.toFixed(1)}%</span>
+                    </div>
+                `;
+                listContainer.appendChild(div);
+            });
+
+            // 填寫表格
+            const tbody = document.getElementById('summary-table-body');
+            tbody.innerHTML = '';
+            const grandAvg = (sum1 + sum2) / 2;
+            diffData.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition";
+                const share = grandAvg > 0 ? ((item.avg / grandAvg) * 100).toFixed(2) : '0.00';
+                const isPos = item.diff >= 0;
+                const diffColor = isPos ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold';
+                const s = isPos ? '+' : '';
+
+                tr.innerHTML = `
+                    <td class="p-3 font-bold text-slate-800">${item.station}</td>
+                    <td class="p-3 text-right font-mono">${item.v1.toLocaleString()}</td>
+                    <td class="p-3 text-right font-mono">${item.v2.toLocaleString()}</td>
+                    <td class="p-3 text-right font-mono ${diffColor}">${s}${item.diff.toLocaleString()}</td>
+                    <td class="p-3 text-right font-mono ${diffColor}">${s}${item.pct.toFixed(2)}%</td>
+                    <td class="p-3 text-right font-mono text-slate-600">${share}%</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // TAB 2: 單站 10 分鐘時段走勢與多日疊加
+        function updateTimeChart() {
+            const station = document.getElementById('select-station-time').value;
+            const activeSlots = fullTimeSlots.slice(startIndex, endIndex + 1);
+
+            const multiDateContainer = document.getElementById('multi-date-container');
+            const isTab3Visible = multiDateContainer && !multiDateContainer.classList.contains('hidden');
+            const datesToOverlay = (isTab3Visible && selectedMultiDates.length > 0) ? selectedMultiDates : [currentSelectedDate1, currentSelectedDate2];
+            const colors = ['#0070BD', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+
+            const datasets = datesToOverlay.map((d, i) => {
+                const arr = getFilteredDataArray(d, station);
+                return {
+                    label: `${d}`,
+                    data: arr,
+                    borderColor: colors[i % colors.length],
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    tension: 0.2,
+                    pointRadius: 3
+                };
+            });
+
+            const ctx = document.getElementById('chart-station-time-series').getContext('2d');
+            if (chartStationTimeSeriesInstance) chartStationTimeSeriesInstance.destroy();
+
+            chartStationTimeSeriesInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels: activeSlots, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: false } }
+                }
+            });
+
+            document.getElementById('time-series-insight').innerHTML = `
+                <strong><i class="fa-solid fa-lightbulb me-1"></i> 多日曲線觀察：</strong>
+                目前刻度為 <strong>${fullTimeSlots[startIndex]} ~ ${fullTimeSlots[endIndex]}</strong>，共 ${activeSlots.length} 個 10 分鐘區間。正在比對 ${datesToOverlay.length} 個日期的連續流量走勢。
+            `;
+        }
+
+        // TAB 3: 歷史多日連續趨勢圖 (跨日比較)
+        function renderTab3HistoryTrend() {
+            const dates = selectedMultiDates.length > 0 ? selectedMultiDates : Object.keys(database).sort();
+            const colors = ['#0070BD', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#64748b'];
+
+            const datasets = standardStations.map((st, i) => {
+                const dailySums = dates.map(d => getSum(getFilteredDataArray(d, st)));
+                return {
+                    label: `${st}站`,
+                    data: dailySums,
+                    borderColor: colors[i % colors.length],
+                    backgroundColor: colors[i % colors.length],
+                    borderWidth: 2,
+                    tension: 0.2,
+                    fill: false
+                };
+            });
+
+            const ctx = document.getElementById('chart-history-trend').getContext('2d');
+            if (chartHistoryTrendInstance) chartHistoryTrendInstance.destroy();
+
+            chartHistoryTrendInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels: dates, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            // 摘要數據
+            const summaryBox = document.getElementById('history-summary-container');
+            summaryBox.innerHTML = '';
+
+            standardStations.forEach((st) => {
+                const dailySums = dates.map(d => getSum(getFilteredDataArray(d, st)));
+                const avgVal = Math.round(getSum(dailySums) / (dates.length || 1));
+                const div = document.createElement('div');
+                div.className = "p-2 bg-white rounded-lg border border-slate-200 shadow-sm";
+                div.innerHTML = `
+                    <div class="font-bold text-slate-700">${st}站</div>
+                    <div class="text-slate-500 font-mono mt-1">均值: <span class="font-bold text-blue-700">${avgVal.toLocaleString()}</span> 人</div>
+                `;
+                summaryBox.appendChild(div);
+            });
+        }
+
+        // TAB 4: 渲染時段熱圖矩陣
+        function renderDiffHeatmap() {
+            const date1 = currentSelectedDate1;
+            const date2 = currentSelectedDate2;
+            const activeSlots = fullTimeSlots.slice(startIndex, endIndex + 1);
+
+            const headerRow = document.getElementById('heatmap-header-row');
+            headerRow.innerHTML = `<th class="p-2.5 text-left sticky left-0 bg-slate-100 z-10 w-28">車站 \\ 時段</th>`;
+            activeSlots.forEach(t => {
+                headerRow.innerHTML += `<th class="p-2 font-mono">${t}</th>`;
+            });
+
+            const tbody = document.getElementById('diff-heatmap-body');
+            tbody.innerHTML = '';
+
+            standardStations.forEach(st => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition";
+
+                let html = `<td class="p-2.5 font-bold text-slate-800 text-left sticky left-0 bg-white border-r border-slate-200 z-10">${st}</td>`;
+
+                const arr1 = getFilteredDataArray(date1, st);
+                const arr2 = getFilteredDataArray(date2, st);
+
+                arr1.forEach((val1, idx) => {
+                    const val2 = arr2[idx] || 0;
+                    const diff = val2 - val1;
+
+                    let bgClass = "bg-slate-50 text-slate-600";
+                    if (diff >= 50) {
+                        bgClass = "bg-blue-600 text-white font-bold";
+                    } else if (diff > 15 && diff < 50) {
+                        bgClass = "bg-blue-100 text-blue-900 font-medium";
+                    } else if (diff <= -50) {
+                        bgClass = "bg-rose-500 text-white font-bold";
+                    } else if (diff < -15 && diff > -50) {
+                        bgClass = "bg-rose-100 text-rose-900 font-medium";
+                    }
+
+                    const sign = diff > 0 ? '+' : '';
+                    html += `<td class="p-2 ${bgClass} transition-all font-mono">${sign}${diff}</td>`;
+                });
+
+                tr.innerHTML = html;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 工具函數：計算陣列總和
+        function getSum(arr) {
+            if (!arr || !Array.isArray(arr)) return 0;
+            return arr.reduce((a, b) => a + Number(b || 0), 0);
+        }
+
+        // 上傳檔案處理 (支援 CSV / XLSX 雙模式)
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet, { defval: 0 });
+
+                    parseAndLoadData(json);
+                } catch (err) {
+                    alert("檔案讀取失敗，請確認格式: " + err.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // 解析 JSON 資料並更新數據庫
+        function parseAndLoadData(rows) {
+            if (!rows || rows.length === 0) return;
+
+            const newDb = {};
+            const isRawFormat = rows[0].hasOwnProperty('grp') && rows[0].hasOwnProperty('sta');
+
+            if (isRawFormat) {
+                rows.forEach(row => {
+                    const grp = String(row['grp'] || '');
+                    const sta = String(row['sta'] || '').trim();
+                    const acc_in = Number(row['acc_in']) || 0;
+                    const acc_out = Number(row['acc_out']) || 0;
+
+                    if (!grp || !sta) return;
+
+                    const date = grp.substring(0, 10);
+                    const timeStr = grp.substring(11).replace('X', '0');
+
+                    const tIdx = fullTimeSlots.indexOf(timeStr);
+                    if (tIdx === -1) return;
+
+                    if (!newDb[date]) newDb[date] = {};
+                    if (!newDb[date][sta]) {
+                        newDb[date][sta] = {
+                            in: Array(fullTimeSlots.length).fill(0),
+                            out: Array(fullTimeSlots.length).fill(0)
+                        };
+                    }
+
+                    newDb[date][sta].in[tIdx] = acc_in;
+                    newDb[date][sta].out[tIdx] = acc_out;
+                });
+            }
+
+            if (Object.keys(newDb).length > 0) {
+                database = newDb;
+                initControlPanel();
+                refreshDashboard();
+            } else {
+                alert("無法解析出合格數據，請確認欄位名稱。");
+            }
+        }
+
+        // 下載範本
+        function downloadExcelTemplate() {
+            const templateRows = [];
+            const dates = ['2026-08-10', '2026-08-17'];
+
+            dates.forEach(d => {
+                standardStations.forEach(st => {
+                    fullTimeSlots.forEach(t => {
+                        templateRows.push({
+                            'grp': `${d} ${t.substring(0, 4)}X`,
+                            'sta': st,
+                            'acc_in': Math.floor(Math.random() * 500 + 100),
+                            'acc_out': Math.floor(Math.random() * 400 + 50)
+                        });
+                    });
+                });
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(templateRows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "板南線流量數據範本");
+            XLSX.writeFile(workbook, "板南線進出站流量數據範本.xlsx");
+        }
+    </script>
+</body>
+</html>
